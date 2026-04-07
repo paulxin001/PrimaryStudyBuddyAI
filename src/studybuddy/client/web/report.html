@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>学习报告 — StudyBuddy</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary: #4F46E5;
+            --bg: #F8FAFC;
+            --card: #FFFFFF;
+            --text: #1E293B;
+            --text-secondary: #64748B;
+            --success: #10B981;
+            --warning: #F59E0B;
+            --danger: #EF4444;
+            --radius: 16px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 0 16px;
+        }
+
+        .container { max-width: 480px; margin: 0 auto; padding: 24px 0; }
+
+        .report-header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .report-header h1 { font-size: 24px; font-weight: 700; }
+        .report-header p { color: var(--text-secondary); margin-top: 4px; }
+
+        .rating {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--success);
+            margin-top: 12px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+
+        .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            text-align: center;
+        }
+
+        .stat-item .value { font-size: 28px; font-weight: 700; }
+        .stat-item .label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+        .task-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #F1F5F9;
+        }
+
+        .task-row:last-child { border-bottom: none; }
+        .task-subject { font-weight: 600; }
+        .task-time { font-size: 14px; color: var(--text-secondary); }
+
+        .efficiency-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .eff-excellent { background: rgba(16,185,129,0.12); color: var(--success); }
+        .eff-good { background: rgba(79,70,229,0.1); color: var(--primary); }
+        .eff-fair { background: rgba(245,158,11,0.12); color: var(--warning); }
+        .eff-poor { background: rgba(239,68,68,0.1); color: var(--danger); }
+
+        .tip {
+            padding: 10px 14px;
+            background: #FFF7ED;
+            border-radius: 10px;
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 8px;
+            color: #92400E;
+        }
+
+        .btn-home {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+
+        .loading { text-align: center; padding: 40px; color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="loading" id="loading">正在加载报告...</div>
+        <div id="content" style="display:none">
+            <div class="report-header">
+                <h1 id="title"></h1>
+                <p id="date"></p>
+                <div class="rating" id="rating"></div>
+            </div>
+
+            <div class="card">
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="value" id="totalTime">-</div>
+                        <div class="label">总时长(分钟)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="value" id="tasksDone">-</div>
+                        <div class="label">完成任务</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="value" id="nudges">-</div>
+                        <div class="label">提醒次数</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>各科详情</h2>
+                <div id="taskList"></div>
+            </div>
+
+            <div class="card" id="tipsCard">
+                <h2>给家长的建议</h2>
+                <div id="tipsList"></div>
+            </div>
+
+            <button class="btn-home" onclick="window.location.href='/'">返回首页</button>
+        </div>
+    </div>
+
+    <script>
+        const pathParts = window.location.pathname.split('/');
+        const sessionId = pathParts[pathParts.length - 1];
+
+        async function loadReport() {
+            try {
+                const resp = await fetch(`/api/report/${sessionId}`);
+                const data = await resp.json();
+
+                if (data.error) {
+                    document.getElementById('loading').textContent = data.error;
+                    return;
+                }
+
+                renderReport(data.report);
+            } catch (e) {
+                document.getElementById('loading').textContent = '加载失败: ' + e.message;
+            }
+        }
+
+        function renderReport(r) {
+            const ov = r.overview;
+
+            document.getElementById('title').textContent = `${r.child_name} 的学习报告`;
+            document.getElementById('date').textContent = r.date;
+            document.getElementById('rating').textContent = ov.overall_rating;
+            document.getElementById('totalTime').textContent = ov.total_session_minutes;
+            document.getElementById('tasksDone').textContent = `${ov.completed_tasks}/${ov.total_tasks}`;
+            document.getElementById('nudges').textContent = ov.nudge_count;
+
+            const taskList = document.getElementById('taskList');
+            r.tasks.forEach(t => {
+                const effClass = {
+                    '优秀': 'eff-excellent', '良好': 'eff-good',
+                    '一般': 'eff-fair', '需加强': 'eff-poor',
+                }[t.efficiency] || 'eff-fair';
+
+                taskList.innerHTML += `
+                    <div class="task-row">
+                        <div>
+                            <div class="task-subject">${t.completed ? '✅' : '⬜'} ${t.subject}</div>
+                            <div class="task-time">${t.actual_minutes}分钟 / 计划${t.planned_minutes}分钟</div>
+                        </div>
+                        <span class="efficiency-badge ${effClass}">${t.efficiency}</span>
+                    </div>
+                `;
+            });
+
+            const tipsList = document.getElementById('tipsList');
+            (r.parent_tips || []).forEach(tip => {
+                tipsList.innerHTML += `<div class="tip">💡 ${tip}</div>`;
+            });
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+        }
+
+        loadReport();
+    </script>
+</body>
+</html>

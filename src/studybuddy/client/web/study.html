@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>学习中 — StudyBuddy</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary: #4F46E5;
+            --bg: #0F172A;
+            --card: #1E293B;
+            --text: #F1F5F9;
+            --text-secondary: #94A3B8;
+            --success: #10B981;
+            --warning: #F59E0B;
+            --danger: #EF4444;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .study-layout {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--card);
+        }
+
+        .status-badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .status-studying { background: rgba(16,185,129,0.15); color: var(--success); }
+        .status-break { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .status-nudge { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .status-briefing { background: rgba(79,70,229,0.15); color: var(--primary); }
+        .status-done { background: rgba(16,185,129,0.15); color: var(--success); }
+
+        .task-info {
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        .camera-area {
+            flex: 1;
+            position: relative;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #cameraPreview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        .camera-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.7));
+        }
+
+        .timer-display {
+            text-align: center;
+        }
+
+        .timer-time {
+            font-size: 48px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 2px;
+        }
+
+        .timer-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            margin-top: 12px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--success);
+            border-radius: 2px;
+            transition: width 1s linear;
+        }
+
+        .bottom-bar {
+            padding: 16px;
+            background: var(--card);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+
+        .task-progress {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .nudge-counter {
+            font-size: 14px;
+            color: var(--warning);
+        }
+
+        .connection-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--danger);
+        }
+
+        .connection-status.connected { background: var(--success); }
+
+        .no-camera {
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 20px;
+        }
+
+        .ai-speaking {
+            position: absolute;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(79,70,229,0.9);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .ai-speaking.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="study-layout">
+        <div class="top-bar">
+            <span class="status-badge status-briefing" id="statusBadge">准备中</span>
+            <span class="task-info" id="taskInfo">等待连接...</span>
+            <div class="connection-status" id="connStatus"></div>
+        </div>
+
+        <div class="camera-area">
+            <video id="cameraPreview" autoplay playsinline muted></video>
+
+            <div class="ai-speaking" id="aiSpeaking">AI 正在说话...</div>
+
+            <div class="camera-overlay">
+                <div class="timer-display">
+                    <div class="timer-time" id="timerTime">--:--</div>
+                    <div class="timer-label" id="timerLabel">等待开始</div>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width:0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bottom-bar">
+            <span class="task-progress" id="taskProgress">任务 -/-</span>
+            <span class="nudge-counter" id="nudgeCount">提醒 0 次</span>
+        </div>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get('session');
+
+        if (!sessionId) {
+            alert('缺少 session 参数');
+            window.location.href = '/';
+        }
+
+        let ws = null;
+        let mediaStream = null;
+        let audioContext = null;
+        let videoInterval = null;
+
+        const STATUS_MAP = {
+            'plan_ready': { text: '准备中', class: 'status-briefing' },
+            'task_briefing': { text: '任务介绍', class: 'status-briefing' },
+            'studying': { text: '学习中', class: 'status-studying' },
+            'nudge': { text: '请专注', class: 'status-nudge' },
+            'break_time': { text: '休息中', class: 'status-break' },
+            'all_done': { text: '完成!', class: 'status-done' },
+            'report_sent': { text: '已完成', class: 'status-done' },
+        };
+
+        async function init() {
+            await setupCamera();
+            setupWebSocket();
+        }
+
+        async function setupCamera() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: 640, height: 480 },
+                    audio: true,
+                });
+                document.getElementById('cameraPreview').srcObject = mediaStream;
+                setupAudioCapture();
+                setupVideoCapture();
+            } catch (e) {
+                console.error('Camera error:', e);
+            }
+        }
+
+        function setupAudioCapture() {
+            audioContext = new AudioContext({ sampleRate: 16000 });
+            const source = audioContext.createMediaStreamSource(mediaStream);
+            const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+            processor.onaudioprocess = (e) => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+                const float32 = e.inputBuffer.getChannelData(0);
+                const int16 = new Int16Array(float32.length);
+                for (let i = 0; i < float32.length; i++) {
+                    int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+                }
+
+                const base64 = arrayBufferToBase64(int16.buffer);
+                ws.send(JSON.stringify({ type: 'audio', data: base64 }));
+            };
+
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+        }
+
+        function setupVideoCapture() {
+            const video = document.getElementById('cameraPreview');
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+
+            videoInterval = setInterval(() => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                if (video.readyState < 2) return;
+
+                ctx.drawImage(video, 0, 0, 640, 480);
+                canvas.toBlob((blob) => {
+                    if (!blob) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const base64 = reader.result.split(',')[1];
+                        ws.send(JSON.stringify({ type: 'video', data: base64 }));
+                    };
+                    reader.readAsDataURL(blob);
+                }, 'image/jpeg', 0.6);
+            }, 1000);
+        }
+
+        function setupWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/study/${sessionId}`);
+
+            ws.onopen = () => {
+                document.getElementById('connStatus').classList.add('connected');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('connStatus').classList.remove('connected');
+                setTimeout(setupWebSocket, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleServerMessage(msg);
+            };
+        }
+
+        function handleServerMessage(msg) {
+            if (msg.type === 'status') {
+                updateUI(msg);
+            } else if (msg.type === 'audio') {
+                playAudio(msg.data);
+            } else if (msg.type === 'error') {
+                alert(msg.message);
+                window.location.href = '/';
+            }
+        }
+
+        function updateUI(status) {
+            const stateInfo = STATUS_MAP[status.state] || { text: status.state, class: '' };
+            const badge = document.getElementById('statusBadge');
+            badge.textContent = stateInfo.text;
+            badge.className = `status-badge ${stateInfo.class}`;
+
+            if (status.current_task) {
+                document.getElementById('taskInfo').textContent = status.current_task;
+            }
+
+            document.getElementById('taskProgress').textContent =
+                `任务 ${(status.task_index || 0) + 1}/${status.task_total || 0}`;
+
+            document.getElementById('nudgeCount').textContent =
+                `提醒 ${status.nudge_count || 0} 次`;
+
+            if (status.timer) {
+                const remaining = Math.ceil(status.timer.remaining);
+                const mins = Math.floor(remaining / 60);
+                const secs = remaining % 60;
+                document.getElementById('timerTime').textContent =
+                    `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                document.getElementById('timerLabel').textContent = status.timer.label;
+                document.getElementById('progressFill').style.width =
+                    `${(status.timer.progress * 100).toFixed(1)}%`;
+            }
+
+            if (status.state === 'report_sent') {
+                setTimeout(() => {
+                    window.location.href = `/report/${sessionId}`;
+                }, 2000);
+            }
+        }
+
+        async function playAudio(base64Data) {
+            try {
+                const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+                const ctx = new AudioContext({ sampleRate: 24000 });
+                const buffer = ctx.createBuffer(1, bytes.length / 2, 24000);
+                const channel = buffer.getChannelData(0);
+                const view = new DataView(bytes.buffer);
+                for (let i = 0; i < channel.length; i++) {
+                    channel[i] = view.getInt16(i * 2, true) / 32768;
+                }
+                const source = ctx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(ctx.destination);
+                source.start();
+
+                document.getElementById('aiSpeaking').classList.add('show');
+                source.onended = () => {
+                    document.getElementById('aiSpeaking').classList.remove('show');
+                };
+            } catch (e) {
+                console.error('Audio playback error:', e);
+            }
+        }
+
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        init();
+    </script>
+</body>
+</html>

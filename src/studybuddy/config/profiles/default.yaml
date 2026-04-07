@@ -1,0 +1,32 @@
+# 默认孩子配置模板
+# 每个孩子可以有自己的配置文件
+
+child_name: "小朋友"
+
+# 学习习惯参数（后续可根据数据自动调整）
+preferences:
+  # 单次最长学习时间（分钟）
+  max_study_duration: 25
+  # 默认休息时间（分钟）
+  default_break: 5
+  # 长休息时间（每完成3个任务后）
+  long_break: 15
+  # 注意力提醒冷却时间（秒）
+  nudge_cooldown: 60
+
+# AI 交互风格
+ai_style:
+  # 温和/中性/严格
+  tone: "温和"
+  # 鼓励频率（每N分钟一次）
+  encourage_interval_minutes: 5
+  # 提醒最大次数（超过后调整策略而非继续提醒）
+  max_nudges_before_strategy_change: 6
+
+# 科目偏好（优先排序）
+subject_priority:
+  - "数学"
+  - "英语"
+  - "语文"
+  - "科学"
+  - "阅读"

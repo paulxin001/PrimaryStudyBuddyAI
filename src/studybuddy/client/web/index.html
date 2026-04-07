@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>StudyBuddy — 学习伙伴</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary: #4F46E5;
+            --primary-light: #818CF8;
+            --bg: #F8FAFC;
+            --card: #FFFFFF;
+            --text: #1E293B;
+            --text-secondary: #64748B;
+            --border: #E2E8F0;
+            --success: #10B981;
+            --radius: 16px;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 0 16px;
+        }
+
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 24px 0;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            margin-top: 8px;
+            font-size: 15px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+
+        .card h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1.5px solid var(--border);
+            border-radius: 12px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+            margin-bottom: 16px;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1.5px solid var(--border);
+            border-radius: 12px;
+            font-size: 15px;
+            line-height: 1.6;
+            outline: none;
+            resize: vertical;
+            min-height: 160px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus {
+            border-color: var(--primary);
+        }
+
+        .hint {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+            line-height: 1.5;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: white;
+            border: none;
+            border-radius: 14px;
+            font-size: 17px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #planResult {
+            display: none;
+        }
+
+        #planResult pre {
+            font-size: 14px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            color: var(--text);
+            background: var(--bg);
+            padding: 16px;
+            border-radius: 12px;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--success), #34D399);
+            margin-top: 16px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary);
+        }
+
+        .loading.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>StudyBuddy</h1>
+            <p>AI 学习伙伴 — 陪伴写作业</p>
+        </header>
+
+        <div class="card">
+            <h2>孩子信息</h2>
+            <label>孩子姓名</label>
+            <input type="text" id="childName" value="小朋友" placeholder="输入孩子姓名">
+        </div>
+
+        <div class="card">
+            <h2>今日作业</h2>
+            <label>作业内容（每行一科）</label>
+            <textarea id="homework" placeholder="数学：练习册第32页&#10;语文：抄写生字两遍&#10;英语：听写单词&#10;阅读20分钟"></textarea>
+            <p class="hint">
+                支持格式：科目+内容，可选写时间。<br>
+                例如：数学：口算题卡 15分钟
+            </p>
+        </div>
+
+        <button class="btn" id="createBtn" onclick="createPlan()">
+            生成学习计划
+        </button>
+
+        <div class="loading" id="loading">正在生成计划...</div>
+
+        <div id="planResult" class="card">
+            <h2>学习计划</h2>
+            <pre id="planDisplay"></pre>
+            <button class="btn btn-success" id="startBtn" onclick="startStudy()">
+                开始学习
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentSessionId = null;
+
+        async function createPlan() {
+            const name = document.getElementById('childName').value.trim() || '小朋友';
+            const homework = document.getElementById('homework').value.trim();
+
+            if (!homework) {
+                alert('请输入作业内容');
+                return;
+            }
+
+            const btn = document.getElementById('createBtn');
+            const loading = document.getElementById('loading');
+            btn.disabled = true;
+            loading.classList.add('show');
+
+            try {
+                const resp = await fetch('/api/plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ child_name: name, homework_text: homework }),
+                });
+
+                const data = await resp.json();
+                currentSessionId = data.session_id;
+
+                document.getElementById('planDisplay').textContent = data.display;
+                document.getElementById('planResult').style.display = 'block';
+            } catch (e) {
+                alert('创建计划失败: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('show');
+            }
+        }
+
+        function startStudy() {
+            if (currentSessionId) {
+                window.location.href = `/study?session=${currentSessionId}`;
+            }
+        }
+    </script>
+</body>
+</html>
