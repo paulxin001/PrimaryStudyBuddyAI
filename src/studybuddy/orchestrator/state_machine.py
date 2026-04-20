@@ -162,7 +162,7 @@ class StudySessionStateMachine:
             logger.warning(
                 "invalid_transition",
                 current=self.ctx.state.value,
-                event=event.value,
+                trigger=event.value,
             )
             return None
 
@@ -175,7 +175,7 @@ class StudySessionStateMachine:
             "state_transition",
             prev=prev.value,
             next=next_state.value,
-            event=event.value,
+            trigger=event.value,
             task_index=self.ctx.plan.current_task_index,
         )
 

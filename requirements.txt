@@ -1,16 +1,11 @@
 # StudyBuddyAI - AI 作业监督系统
 # Python >= 3.11
+# 完整依赖见 pyproject.toml，此文件用于直接 pip install -r 场景
 
 # Web 框架
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 websockets>=13.0
-
-# Google Gemini Live API
-google-genai>=1.0.0
-
-# 火山引擎豆包 API (备选)
-volcengine-python-sdk>=1.0.0
 
 # 数据处理
 pydantic>=2.10.0
@@ -20,12 +15,8 @@ pyyaml>=6.0.2
 aiofiles>=24.1.0
 httpx>=0.28.0
 
-# 音频处理
-pyaudio>=0.2.14
-
-# 图像处理
+# 图像处理（视频帧抽取，JPEG 编码）
 pillow>=11.0.0
-opencv-python-headless>=4.10.0
 
 # 日志
 structlog>=24.4.0

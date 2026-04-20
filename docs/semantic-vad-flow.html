@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>语义 VAD 方案对比流程图</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg: #0a0e1a;
+    --surface: #131829;
+    --surface2: #1a2035;
+    --border: #2a3050;
+    --text: #e4e8f1;
+    --text2: #8892b0;
+    --accent1: #64ffda;
+    --accent2: #7b61ff;
+    --accent3: #ff6b9d;
+    --accent4: #ffd93d;
+    --blue: #4da6ff;
+    --green: #4ade80;
+    --orange: #fb923c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 40px 24px;
+    line-height: 1.6;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 12px;
+    background: linear-gradient(135deg, var(--accent1), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    text-align: center;
+    color: var(--text2);
+    font-size: 14px;
+    margin-bottom: 48px;
+  }
+
+  .section-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 48px 0 24px;
+    padding-left: 16px;
+    border-left: 3px solid var(--accent1);
+    color: var(--accent1);
+  }
+
+  /* ========== 流程图通用样式 ========== */
+  .flow-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .flow-container::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+  }
+
+  .flow-node {
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .flow-node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+  }
+
+  .node-input {
+    background: linear-gradient(135deg, #1a3a4a, #1a2a3a);
+    border: 1px solid #2a5a6a;
+    color: var(--blue);
+  }
+
+  .node-process {
+    background: linear-gradient(135deg, #1a2a4a, #2a1a4a);
+    border: 1px solid #3a3a6a;
+    color: var(--accent2);
+  }
+
+  .node-model {
+    background: linear-gradient(135deg, #1a3a2a, #1a4a3a);
+    border: 1px solid #2a6a4a;
+    color: var(--accent1);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+
+  .node-output {
+    background: linear-gradient(135deg, #3a2a1a, #4a2a1a);
+    border: 1px solid #6a4a2a;
+    color: var(--accent4);
+  }
+
+  .node-decision {
+    background: linear-gradient(135deg, #3a1a2a, #4a1a3a);
+    border: 1px solid #6a2a4a;
+    color: var(--accent3);
+    clip-path: polygon(10% 0%, 90% 0%, 100% 50%, 90% 100%, 10% 100%, 0% 50%);
+    padding: 10px 28px;
+  }
+
+  .flow-arrow {
+    color: var(--text2);
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .flow-label {
+    font-size: 11px;
+    color: var(--text2);
+    margin-top: 2px;
+  }
+
+  .flow-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* ========== 大流程图 ========== */
+  .big-flow {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    position: relative;
+  }
+
+  .big-flow::before {
+    content: 'StudyBuddyAI 语音交互全链路';
+    position: absolute;
+    top: -12px; left: 24px;
+    background: var(--bg);
+    padding: 0 12px;
+    font-size: 12px;
+    color: var(--accent1);
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+
+  .swim-lane {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .swim-lane:last-child { border-bottom: none; }
+
+  .lane-label {
+    width: 80px;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    text-align: right;
+    padding-right: 12px;
+    border-right: 2px solid var(--border);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .lane-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-left: 12px;
+  }
+
+  .v-arrow {
+    text-align: center;
+    padding: 4px 0;
+    color: var(--text2);
+    font-size: 16px;
+  }
+
+  /* ========== 对比表格 ========== */
+  .compare-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+
+  .compare-table th {
+    background: var(--surface2);
+    padding: 14px 16px;
+    font-weight: 600;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+    color: var(--accent1);
+  }
+
+  .compare-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .compare-table tr:last-child td { border-bottom: none; }
+
+  .compare-table tr:hover td { background: rgba(100,255,218,0.03); }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    margin: 1px;
+  }
+
+  .tag-green { background: rgba(74,222,128,0.15); color: var(--green); }
+  .tag-orange { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .tag-blue { background: rgba(77,166,255,0.15); color: var(--blue); }
+  .tag-pink { background: rgba(255,107,157,0.15); color: var(--accent3); }
+
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--accent1);
+  }
+
+  .note {
+    margin-top: 16px;
+    padding: 16px 20px;
+    background: rgba(123,97,255,0.08);
+    border: 1px solid rgba(123,97,255,0.2);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.8;
+  }
+
+  .note strong { color: var(--accent2); }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>语义 VAD 全链路流程图</h1>
+<p class="subtitle">传统 VAD vs LiveKit Turn Detector vs SoulX-Duplug — 从音频到"说完没"的判断</p>
+
+<!-- ========== 方案 A: 传统 VAD ========== -->
+<div class="section-title">方案 A：传统 VAD（火山引擎 RTC 自带）</div>
+
+<div class="flow-container">
+  <div class="flow-row">
+    <div class="flow-group">
+      <div class="flow-node node-input">🎤 孩子说话</div>
+      <div class="flow-label">音频流</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-group">
+      <div class="flow-node node-process">RTC 云端 VAD</div>
+      <div class="flow-label">检测有没有声音</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-group">
+      <div class="flow-node node-decision">静音 > 600ms ?</div>
+      <div class="flow-label">纯声学判断</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-group">
+      <div class="flow-node node-output">判定：说完了</div>
+      <div class="flow-label">触发 AI 回复</div>
+    </div>
+  </div>
+  <div class="note">
+    <strong>问题：</strong>孩子说"那个作业本在……"停顿想了一下，600ms 一到就被判为"说完了"，AI 直接接话打断。
+    只看声音，不懂语义。
+  </div>
+</div>
+
+<!-- ========== 方案 B: LiveKit Turn Detector ========== -->
+<div class="section-title">方案 B：LiveKit Turn Detector（纯文本语义判断）</div>
+
+<div class="flow-container">
+  <div class="flow-row">
+    <div class="flow-group">
+      <div class="flow-node node-input">🎤 孩子说话</div>
+      <div class="flow-label">音频流</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-group">
+      <div class="flow-node node-process">ASR 语音识别</div>
+      <div class="flow-label">火山引擎 RTC 自带</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-group">
+      <div class="flow-node node-model">实时转写文本</div>
+      <div class="flow-label">"那个作业本在"</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-group">
+      <div class="flow-node node-process" style="border-color:#7b61ff">Qwen2.5-0.5B</div>
+      <div class="flow-label">Turn Detector</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-group">
+      <div class="flow-node node-decision">&lt;im_end&gt; 概率?</div>
+      <div class="flow-label">语义判断</div>
+    </div>
+  </div>
+  <div style="padding: 8px 0 0 0; display: flex; gap: 40px; justify-content: center;">
+    <div style="text-align: center;">
+      <div style="color: var(--green); font-size: 14px;">概率 = 0.05 → <strong>没说完，等着</strong></div>
+      <div style="color: var(--text2); font-size: 12px; margin-top: 4px;">"那个作业本在……" AI 不接话</div>
+    </div>
+    <div style="text-align: center;">
+      <div style="color: var(--accent3); font-size: 14px;">概率 = 0.92 → <strong>说完了，AI 接话</strong></div>
+      <div style="color: var(--text2); font-size: 12px; margin-top: 4px;">"我写完了" AI 开始回复</div>
+    </div>
+  </div>
+  <div class="note">
+    <strong>输入：纯文本</strong>（ASR 转写结果）。不需要音频。CPU 推理 ~25ms。<br>
+    <strong>原理：</strong>把对话文本填进 Qwen chat 模板，预测下一个 token 是 &lt;|im_end|&gt; 的概率。概率高 = 说完了。
+  </div>
+</div>
+
+<!-- ========== 方案 C: SoulX-Duplug ========== -->
+<div class="section-title">方案 C：SoulX-Duplug（音频+文本双路语义判断）</div>
+
+<div class="flow-container">
+  <div class="flow-row">
+    <div class="flow-group">
+      <div class="flow-node node-input">🎤 孩子说话</div>
+      <div class="flow-label">音频流</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div style="display:flex; flex-direction:column; gap: 8px;">
+      <div class="flow-row" style="padding:0;">
+        <div class="flow-group">
+          <div class="flow-node node-process">GLM-4-Voice 编码</div>
+          <div class="flow-label">音频 → 离散 token</div>
+        </div>
+        <div class="flow-arrow" style="font-size:12px;">160ms/chunk →</div>
+      </div>
+      <div class="flow-row" style="padding:0;">
+        <div class="flow-group">
+          <div class="flow-node node-process">外部 ASR (Paraformer)</div>
+          <div class="flow-label">音频 → 实时文本</div>
+        </div>
+        <div class="flow-arrow" style="font-size:12px;">teacher force →</div>
+      </div>
+    </div>
+    <div class="flow-group">
+      <div class="flow-node node-model" style="font-size:13px; padding: 16px 20px;">Qwen3-0.6B</div>
+      <div class="flow-label">音频 token + 文本 token</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <div class="flow-node node-output" style="font-size:11px; padding:6px 12px;">🟢 &lt;user_complete&gt; → AI 接话</div>
+      <div class="flow-node node-output" style="font-size:11px; padding:6px 12px; border-color:#4a6a2a; color:var(--green);">🟡 &lt;user_incomplete&gt; → 继续等</div>
+      <div class="flow-node node-output" style="font-size:11px; padding:6px 12px; border-color:#2a4a6a; color:var(--blue);">⚪ &lt;user_idle&gt; → 静音</div>
+      <div class="flow-node node-output" style="font-size:11px; padding:6px 12px; border-color:#6a2a6a; color:var(--accent2);">🔵 &lt;user_backchannel&gt; → "嗯"</div>
+    </div>
+  </div>
+  <div class="note">
+    <strong>输入：音频 + 文本（双路）</strong>。每 160ms 一个 chunk，延迟 ~240ms。<br>
+    <strong>原理：</strong>训练时端到端学 VAD+ASR+状态预测，推理时用外部 ASR 提供更准确的文本（teacher-forcing）。
+  </div>
+</div>
+
+<!-- ========== 在 StudyBuddyAI 中的集成位置 ========== -->
+<div class="section-title">在 StudyBuddyAI 中的集成位置</div>
+
+<div class="big-flow">
+  <div class="swim-lane">
+    <div class="lane-label">孩子端</div>
+    <div class="lane-content">
+      <div class="flow-node node-input">🎤 麦克风</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-input">📷 摄像头</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-process">RTC SDK</div>
+      <div class="flow-arrow">→ 音视频流 →</div>
+    </div>
+  </div>
+  <div class="swim-lane">
+    <div class="lane-label">RTC 云端</div>
+    <div class="lane-content">
+      <div class="flow-node node-process">ASR 识别</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-model">转写文本</div>
+      <div class="flow-arrow" style="color:var(--accent3);">⬇ 回调给服务端</div>
+      <div style="width:20px"></div>
+      <div class="flow-node node-process">TTS 合成</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-output">🔊 AI 语音</div>
+    </div>
+  </div>
+  <div class="swim-lane">
+    <div class="lane-label" style="color:var(--accent3);">语义 VAD<br><span style="font-size:9px;color:var(--text2)">未来升级</span></div>
+    <div class="lane-content">
+      <div class="flow-node node-model" style="border-color:var(--accent3); color:var(--accent3);">
+        Turn Detector<br><span style="font-size:10px;color:var(--text2)">Qwen2.5-0.5B / CPU</span>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-decision" style="clip-path:none; padding:10px 14px;">
+        说完了？
+      </div>
+      <div class="flow-arrow">→ 控制 AI 是否接话</div>
+    </div>
+  </div>
+  <div class="swim-lane">
+    <div class="lane-label">服务端</div>
+    <div class="lane-content">
+      <div class="flow-node node-process" style="border-color:#7b61ff;">LLM (Seed 2.0)</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-process">Function Call</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-model">状态机 / BehaviorAnalyzer</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node node-output">Prompt 策略</div>
+    </div>
+  </div>
+</div>
+
+<div class="note" style="margin-top:16px;">
+  <strong>当前（M0-M1）：</strong>用火山 RTC 自带的 VAD（方案 A），<span class="mono">InterruptMode=0</span>，静音 600ms 判停。够用。<br>
+  <strong>升级路径（M2-M3）：</strong>在服务端加一个 LiveKit Turn Detector（方案 B），拿 ASR 文本判断语义完整性，精确控制 AI 接话时机。<br>
+  <strong>终极方案（M5+）：</strong>如果需要更精细的全双工交互（backchannel、打断判别），换 SoulX-Duplug（方案 C）。
+</div>
+
+<!-- ========== 对比表 ========== -->
+<div class="section-title">三方案对比</div>
+
+<table class="compare-table">
+  <thead>
+    <tr>
+      <th>维度</th>
+      <th>方案 A：传统 VAD</th>
+      <th>方案 B：LiveKit Turn Detector</th>
+      <th>方案 C：SoulX-Duplug</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>输入</strong></td>
+      <td>音频帧</td>
+      <td><span class="tag tag-green">纯文本</span></td>
+      <td><span class="tag tag-orange">音频 + 文本</span></td>
+    </tr>
+    <tr>
+      <td><strong>判断依据</strong></td>
+      <td>有没有声音</td>
+      <td>这句话说完没（语义）</td>
+      <td>声学 + 语义 + 状态</td>
+    </tr>
+    <tr>
+      <td><strong>延迟</strong></td>
+      <td>~600ms（静音等待）</td>
+      <td><span class="tag tag-green">~25ms</span></td>
+      <td>~240ms</td>
+    </tr>
+    <tr>
+      <td><strong>模型</strong></td>
+      <td>无 / Silero VAD</td>
+      <td><span class="mono">Qwen2.5-0.5B</span> INT8 ONNX</td>
+      <td><span class="mono">Qwen3-0.6B</span> + GLM-4-Voice</td>
+    </tr>
+    <tr>
+      <td><strong>硬件需求</strong></td>
+      <td>无</td>
+      <td><span class="tag tag-green">CPU, &lt;500MB</span></td>
+      <td><span class="tag tag-orange">GPU L20</span></td>
+    </tr>
+    <tr>
+      <td><strong>能力</strong></td>
+      <td>说/没说</td>
+      <td>说完/没说完</td>
+      <td><span class="tag tag-blue">说完/没说完/嗯/静音/说话中</span></td>
+    </tr>
+    <tr>
+      <td><strong>需要音频流</strong></td>
+      <td>是</td>
+      <td><span class="tag tag-green">否</span></td>
+      <td>是</td>
+    </tr>
+    <tr>
+      <td><strong>集成难度</strong></td>
+      <td>零（RTC 自带）</td>
+      <td><span class="tag tag-green">低</span>（pip install）</td>
+      <td><span class="tag tag-orange">中</span>（需音频流接入）</td>
+    </tr>
+    <tr>
+      <td><strong>适用阶段</strong></td>
+      <td><span class="tag tag-green">M0-M1</span></td>
+      <td><span class="tag tag-blue">M2-M3</span></td>
+      <td><span class="tag tag-pink">M5+</span></td>
+    </tr>
+  </tbody>
+</table>
+
+</div>
+
+</body>
+</html>

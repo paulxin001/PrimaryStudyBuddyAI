@@ -1,0 +1,35 @@
+---
+description: Prompt 模板约束 — 编辑 Prompt 文件时自动加载
+globs: ["**/prompts/*.md"]
+---
+
+# Prompt 模板 — 修改约束
+
+## 自主性等级：🔴 稳定（所有修改需用户确认）
+
+## 必需的 6 个模板文件
+
+1. `system_persona.md` — 全局人设，定义 AI 角色和行为准则
+2. `task_briefing.md` — 任务介绍阶段指令，使用 `{subject}` `{description}` `{duration}` 占位符
+3. `studying_monitor.md` — 监督阶段指令，使用 `{subject}` `{description}` `{duration}` 占位符
+4. `nudge_templates.md` — 提醒话术，使用 `{nudge_count}` `{subject}` 占位符
+5. `break_time.md` — 休息阶段指令，使用 `{break_minutes}` `{next_subject}` 占位符
+6. `report_summary.md` — 总结阶段指令，使用 `{child_name}` `{summary}` 占位符
+
+## 绝对禁止的内容
+
+- ❌ 帮孩子做作业的指令（如"直接告诉答案"、"帮他做"、"给出答案"）
+- ❌ 包含具体学科知识答案
+- ❌ 鼓励孩子跳过作业的话术
+
+## 占位符规范
+
+- Prompt 中的占位符使用 Python `str.format()` 语法：`{variable_name}`
+- 新增占位符必须同步修改 `engine.py` 中对应的 `_load_prompt().format()` 调用
+- 删除占位符前确认 `engine.py` 不再传入该变量
+
+## 修改 Prompt 的影响范围
+
+- `system_persona.md` → 影响所有阶段的 AI 行为
+- `studying_monitor.md` → 影响 AI 监督时的 function calling 频率和阈值
+- `nudge_templates.md` → 直接影响孩子的使用体验

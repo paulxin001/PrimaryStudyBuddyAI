@@ -24,12 +24,16 @@ def main():
     parser.add_argument("--json", action="store_true", help="JSON 格式输出")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("server", help="启动 Web 服务")
-    sub.add_parser("health", help="健康检查")
+    server_parser = sub.add_parser("server", help="启动 Web 服务")
+    server_parser.add_argument("--json", action="store_true", help="JSON 格式输出")
+
+    health_parser = sub.add_parser("health", help="健康检查")
+    health_parser.add_argument("--json", action="store_true", help="JSON 格式输出")
 
     plan_parser = sub.add_parser("plan", help="预览学习计划")
     plan_parser.add_argument("homework", help="作业内容（每行一科）")
     plan_parser.add_argument("--name", default="小朋友", help="孩子姓名")
+    plan_parser.add_argument("--json", action="store_true", help="JSON 格式输出")
 
     args = parser.parse_args()
 
@@ -57,8 +61,10 @@ def _health_check(args):
     from .config.settings import config
     result = {
         "status": "ok",
-        "gemini_configured": bool(config.gemini.api_key),
-        "volcengine_configured": bool(config.volcengine.access_key),
+        "rtc_configured": bool(config.rtc.access_key and config.rtc.rtc_app_id),
+        "llm_configured": bool(config.llm.endpoint_id),
+        "asr_configured": bool(config.asr.app_id),
+        "tts_configured": bool(config.tts.app_id),
     }
     if args.json:
         print(json.dumps(result))

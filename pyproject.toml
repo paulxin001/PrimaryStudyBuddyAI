@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "studybuddy"
+version = "0.1.0"
+description = "AI 作业监督系统 — 家长远程设置，AI 自主按计划陪伴孩子写作业"
+requires-python = ">=3.11"
+dependencies = [
+    # Web 框架
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "websockets>=13.0",
+    # 数据处理
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.2",
+    # 异步支持
+    "aiofiles>=24.1.0",
+    "httpx>=0.28.0",
+    # 图像处理（视频帧抽取）
+    "pillow>=11.0.0",
+    # 日志
+    "structlog>=24.4.0",
+    # 环境变量
+    "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+studybuddy = "studybuddy.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

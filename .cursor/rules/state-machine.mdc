@@ -1,0 +1,29 @@
+---
+description: 状态机模块约束 — 修改状态机时自动加载
+globs: ["**/orchestrator/state_machine.py", "**/orchestrator/engine.py", "**/orchestrator/timer.py"]
+---
+
+# 状态机模块 — 修改约束
+
+## 自主性等级：🔴 稳定（所有修改需用户确认）
+
+## 不可违反的不变量
+
+1. **恰好 7 个状态**：PLAN_READY, TASK_BRIEFING, STUDYING, NUDGE, BREAK_TIME, ALL_DONE, REPORT_SENT
+2. **TRANSITIONS 表是唯一的转换定义**：不得在其他地方硬编码状态转换逻辑
+3. **dispatch() 是唯一的状态变更入口**：不得直接修改 `ctx.state`（除非在 dispatch 内部）
+4. **状态转换必须触发回调**：`_callbacks` 列表中的回调必须全部执行
+5. **计时器是背压门控**：到时间必须触发状态转换，不可静默吞掉
+
+## 修改前必读
+
+- 转换规则表：`state_machine.py` 第 43-53 行 `TRANSITIONS`
+- 状态进入处理器：`engine.py` 第 97-104 行 `_on_state_change` 的 handler 字典
+- 计时器联动：`engine.py` 中 `sm.start_timer()` 和 `timer.start()` 的使用场景
+
+## 常见风险
+
+- 新增状态后忘记在 `engine.py` 的 handler 字典中添加对应处理器
+- 新增事件后忘记在 `TRANSITIONS` 表中添加转换规则
+- 修改计时器逻辑时忘记 `state_machine.start_timer()` 和 `TimerManager` 是两套计时机制
+- `scripts/lint_invariants.py` 会检查 7 个状态名是否完整

@@ -1,0 +1,65 @@
+---
+description: AI Provider 约束 — 编辑 AI 适配器时自动加载
+globs: ["**/ai/*.py"]
+---
+
+# AI Provider 模块 — 修改约束
+
+## 技术选型（不可随意更改）
+
+**唯一 Provider：火山引擎 RTC 对话式 AI（ASR + LLM + TTS 三段式）**
+- 传输层：RTC（WebRTC），火山引擎云端处理 ASR/LLM/TTS
+- 管理层：服务端 OpenAPI（`StartVoiceChat` / `UpdateVoiceChat` / `StopVoiceChat`）
+- LLM：豆包 Seed 2.0 Lite（ArkV3 模式），支持多模态 + Function Calling
+- 视觉：`VisionConfig.Enable = true`，RTC 云端自动抽帧截图
+- Function Calling：通过 LLM 触发，通过 `UpdateVoiceChat(Command=FunctionCallResult)` 回传结果
+- 认证：火山引擎 AccessKey V4 签名
+
+禁止引入其他 AI SDK（不得 import google.genai、openai 等）。
+
+## 自主性等级
+
+- `ai/base.py`（抽象接口）：🔴 稳定 — 接口变更需用户确认
+- `ai/volcano_provider.py` 适配器：🟡 半自主 — bug 修复可自主，接口变更需确认
+
+## 接口契约（不可破坏）
+
+`AIProvider` 抽象类定义了以下方法，所有适配器必须实现：
+
+- `capabilities` → 返回支持的能力集合（AICapability 枚举）
+- `connect(system_instruction, tools)` → 调用 StartVoiceChat，配置 ASR/LLM/TTS
+- `send_audio(chunk)` → RTC SDK 层面处理，Provider 不直接操作音频流
+- `send_vision(frame)` → 通过 VisionConfig 开启，RTC 云端自动处理
+- `send_text(text)` → 通过 UpdateVoiceChat(ExternalTextToSpeech) 播报
+- `send_function_response(response)` → UpdateVoiceChat(FunctionCallResult) 回传结果
+- `receive()` → 异步迭代器，通过 RTC 回调接收 Function Call 和状态变化
+- `disconnect()` → 调用 StopVoiceChat
+- `is_connected()` → 连接状态
+
+## Function Calling 对齐检查
+
+AI 侧声明的工具名必须与 Orchestrator 侧的处理器严格一致：
+- `report_status` → `engine.py:_handle_status_report()`
+- `request_phase_change` → `engine.py:_handle_phase_change_request()`
+
+新增工具时，两侧必须同步修改，并运行 `python scripts/lint_invariants.py` 验证 L10。
+
+## 关键 API 格式
+
+```json
+// 启动会话
+POST https://rtc.volcengineapi.com?Action=StartVoiceChat&Version=2024-12-01
+Body: { "AppId", "RoomId", "TaskId", "AgentConfig", "Config" }
+
+// 更新会话（Function Call 回传）
+POST https://rtc.volcengineapi.com?Action=UpdateVoiceChat&Version=2024-12-01
+Body: { "AppId", "RoomId", "TaskId", "Command": "FunctionCallResult", "Message": "<json>" }
+
+// 更新会话（主动播报）
+Body: { ..., "Command": "ExternalTextToSpeech", "Message": "时间到啦！", "InterruptMode": 1 }
+
+// 结束会话
+POST https://rtc.volcengineapi.com?Action=StopVoiceChat&Version=2024-12-01
+```
+
+详见 `docs/VOICE_ARCH.md`。

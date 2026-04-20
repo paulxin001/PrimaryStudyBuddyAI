@@ -2,6 +2,11 @@
 
 驱动状态机、管理 AI 会话生命周期、处理 function calling、
 协调 Timer 与 AI 交互。孩子不需要任何操作就能推进流程。
+
+RTC 模式下：
+- 音视频由客户端 RTC SDK ↔ 火山引擎云端直接处理
+- 服务端通过 OpenAPI 管控会话（StartVoiceChat/UpdateVoiceChat/StopVoiceChat）
+- Function Call 通过 RTC 服务端回调 → Orchestrator 处理 → UpdateVoiceChat 回传
 """
 
 from __future__ import annotations
@@ -13,8 +18,9 @@ from pathlib import Path
 
 import structlog
 
-from ..ai.base import AIMessage, AIProvider, FunctionCall, FunctionResponse, AudioChunk, VisionFrame
+from ..ai.base import AIMessage, AIProvider, FunctionCall, FunctionResponse
 from ..config.settings import config, SESSIONS_DIR, PROMPTS_DIR
+from ..monitor.behavior_analyzer import BehaviorAnalyzer
 from .state_machine import (
     Event,
     SessionContext,
@@ -41,9 +47,13 @@ class Orchestrator:
         self.ai = ai_provider
         self.sm: StudySessionStateMachine | None = None
         self.timer = TimerManager()
-        self._client_audio_callback = None
+        self._analyzer = BehaviorAnalyzer(
+            window_seconds=config.timer.attention_check_interval_seconds * 4,
+            threshold=0.5,
+        )
         self._client_status_callback = None
         self._running = False
+        self._room_id: str = ""
 
     async def create_session(self, plan: StudyPlan) -> SessionContext:
         ctx = SessionContext(plan=plan)
@@ -55,24 +65,36 @@ class Orchestrator:
         logger.info("session_created", session_id=plan.session_id, tasks=len(plan.tasks))
         return ctx
 
-    def on_client_audio(self, callback) -> None:
-        self._client_audio_callback = callback
-
     def on_client_status(self, callback) -> None:
         self._client_status_callback = callback
 
-    async def start(self) -> None:
-        """孩子端连接后调用，启动整个监督流程"""
+    async def start(self, room_id: str, child_user_id: str) -> None:
+        """孩子端连接后调用，启动整个监督流程
+
+        RTC 模式下通过 OpenAPI 创建 AI 智能体加入 RTC 房间。
+        """
         if not self.sm:
             raise RuntimeError("No session created")
 
+        self._room_id = room_id
         self.sm.ctx.session_start_at = time.time()
         self._running = True
 
         system_prompt = self._build_system_prompt()
         await self.ai.connect(system_prompt)
-        await self.sm.dispatch(Event.CHILD_CONNECTED)
 
+        from ..ai.volcano_provider import VolcanoProvider
+        if isinstance(self.ai, VolcanoProvider):
+            task = self.sm.ctx.plan.current_task
+            welcome = f"嗨，{self.sm.ctx.plan.child_name}！准备开始写作业啦！"
+            await self.ai.start_voice_chat(
+                room_id=room_id,
+                task_id=self.sm.ctx.plan.session_id,
+                child_user_id=child_user_id,
+                welcome_message=welcome,
+            )
+
+        await self.sm.dispatch(Event.CHILD_CONNECTED)
         asyncio.create_task(self._ai_receive_loop())
 
     async def stop(self) -> None:
@@ -81,12 +103,6 @@ class Orchestrator:
         if self.sm:
             await self.sm.shutdown()
         await self.ai.disconnect()
-
-    async def handle_client_audio(self, audio_data: bytes) -> None:
-        await self.ai.send_audio(AudioChunk(data=audio_data))
-
-    async def handle_client_video_frame(self, frame_data: bytes) -> None:
-        await self.ai.send_vision(VisionFrame(image_bytes=frame_data))
 
     # --- 状态转换处理 ---
 
@@ -134,6 +150,10 @@ class Orchestrator:
             return
 
         ctx.study_start_times[ctx.plan.current_task_index] = time.time()
+        self._analyzer = BehaviorAnalyzer(
+            window_seconds=config.timer.attention_check_interval_seconds * 4,
+            threshold=0.5,
+        )
 
         prompt = _load_prompt("studying_monitor.md").format(
             subject=task.subject,
@@ -204,7 +224,7 @@ class Orchestrator:
     # --- AI 消息处理 ---
 
     async def _ai_receive_loop(self) -> None:
-        """持续接收 AI 消息，分发到客户端或处理 function call"""
+        """持续接收 AI 消息（RTC 模式下主要接收 Function Call）"""
         try:
             async for msg in self.ai.receive():
                 if not self._running:
@@ -212,9 +232,6 @@ class Orchestrator:
 
                 if msg.function_call:
                     await self._handle_function_call(msg.function_call)
-
-                if msg.audio and self._client_audio_callback:
-                    await self._client_audio_callback(msg.audio.data)
 
                 if msg.text:
                     logger.debug("ai_text", text=msg.text[:100])
@@ -236,13 +253,12 @@ class Orchestrator:
         detail = fc.arguments.get("detail", "")
 
         self.sm.ctx.log_behavior(status, detail)
+        self._analyzer.add_report(status, confidence, detail)
 
-        distracted_statuses = {"distracted", "bad_posture", "playing_with_pen", "looking_away", "child_left_seat"}
-
-        if status in distracted_statuses and confidence > 0.6:
-            cooldown = config.timer.nudge_cooldown_seconds
-            if time.time() - self.sm.ctx.last_nudge_at > cooldown:
-                await self.sm.dispatch(Event.ATTENTION_LOST)
+        cooldown = config.timer.nudge_cooldown_seconds
+        if (self._analyzer.should_nudge()
+                and time.time() - self.sm.ctx.last_nudge_at > cooldown):
+            await self.sm.dispatch(Event.ATTENTION_LOST)
 
         await self.ai.send_function_response(FunctionResponse(
             name="report_status",
@@ -311,6 +327,7 @@ class Orchestrator:
             "tasks": tasks_summary,
             "nudge_count": ctx.nudge_count,
             "distraction_events": len(distractions),
+            "focus_ratio": round(self._analyzer.get_focus_ratio(), 3),
             "behavior_highlights": [
                 {"time": e.timestamp, "type": e.event_type, "detail": e.detail}
                 for e in distractions[:10]
@@ -337,6 +354,7 @@ class Orchestrator:
         data = {
             "session_id": self.sm.ctx.plan.session_id,
             "state": self.sm.ctx.state.value,
+            "room_id": self._room_id,
             "plan": {
                 "child_name": self.sm.ctx.plan.child_name,
                 "current_task_index": self.sm.ctx.plan.current_task_index,

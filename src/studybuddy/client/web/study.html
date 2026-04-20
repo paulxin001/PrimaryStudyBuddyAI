@@ -143,12 +143,6 @@
 
         .connection-status.connected { background: var(--success); }
 
-        .no-camera {
-            color: var(--text-secondary);
-            text-align: center;
-            padding: 20px;
-        }
-
         .ai-speaking {
             position: absolute;
             top: 16px;
@@ -162,9 +156,44 @@
         }
 
         .ai-speaking.show { display: block; }
+
+        .init-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            gap: 16px;
+        }
+
+        .init-overlay.hidden { display: none; }
+
+        .init-overlay .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--card);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .init-overlay p {
+            color: var(--text-secondary);
+            font-size: 15px;
+        }
     </style>
 </head>
 <body>
+    <div class="init-overlay" id="initOverlay">
+        <div class="spinner"></div>
+        <p id="initStatus">正在连接...</p>
+    </div>
+
     <div class="study-layout">
         <div class="top-bar">
             <span class="status-badge status-briefing" id="statusBadge">准备中</span>
@@ -194,6 +223,14 @@
         </div>
     </div>
 
+    <!--
+        火山引擎 RTC Web SDK
+        生产环境请替换为具体版本的 CDN 地址，如：
+        https://lf-cdn-tos.bytescm.com/obj/static/web_advance/@AgoraIO/veRTC-SDK-Web/latest/veRTC.min.js
+        当前使用占位引入，实际部署时需从火山引擎控制台获取 SDK
+    -->
+    <script src="https://lf-cdn-tos.bytescm.com/obj/static/web_advance/veRTC/latest/veRTC.min.js"></script>
+
     <script>
         const params = new URLSearchParams(window.location.search);
         const sessionId = params.get('session');
@@ -203,10 +240,9 @@
             window.location.href = '/';
         }
 
-        let ws = null;
+        let statusWs = null;
+        let rtcEngine = null;
         let mediaStream = null;
-        let audioContext = null;
-        let videoInterval = null;
 
         const STATUS_MAP = {
             'plan_ready': { text: '准备中', class: 'status-briefing' },
@@ -219,8 +255,30 @@
         };
 
         async function init() {
-            await setupCamera();
-            setupWebSocket();
+            try {
+                updateInitStatus('正在获取摄像头权限...');
+                await setupCamera();
+
+                updateInitStatus('正在获取 RTC Token...');
+                const tokenInfo = await fetchRTCToken();
+
+                updateInitStatus('正在加入 RTC 房间...');
+                await joinRTCRoom(tokenInfo);
+
+                updateInitStatus('正在启动 AI 监督...');
+                await startStudySession(tokenInfo);
+
+                setupStatusWebSocket();
+
+                document.getElementById('initOverlay').classList.add('hidden');
+            } catch (e) {
+                updateInitStatus('连接失败: ' + e.message);
+                console.error('Init error:', e);
+            }
+        }
+
+        function updateInitStatus(text) {
+            document.getElementById('initStatus').textContent = text;
         }
 
         async function setupCamera() {
@@ -230,87 +288,98 @@
                     audio: true,
                 });
                 document.getElementById('cameraPreview').srcObject = mediaStream;
-                setupAudioCapture();
-                setupVideoCapture();
             } catch (e) {
                 console.error('Camera error:', e);
             }
         }
 
-        function setupAudioCapture() {
-            audioContext = new AudioContext({ sampleRate: 16000 });
-            const source = audioContext.createMediaStreamSource(mediaStream);
-            const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        async function fetchRTCToken() {
+            const resp = await fetch('/api/rtc/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId }),
+            });
+            if (!resp.ok) throw new Error('获取 Token 失败');
+            return await resp.json();
+        }
 
-            processor.onaudioprocess = (e) => {
-                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        async function joinRTCRoom(tokenInfo) {
+            if (typeof VERTC === 'undefined') {
+                console.warn('RTC SDK not loaded, running in demo mode');
+                return;
+            }
 
-                const float32 = e.inputBuffer.getChannelData(0);
-                const int16 = new Int16Array(float32.length);
-                for (let i = 0; i < float32.length; i++) {
-                    int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+            rtcEngine = VERTC.createEngine(tokenInfo.app_id);
+
+            rtcEngine.on(VERTC.events.onUserJoined, (event) => {
+                console.log('User joined:', event.userId);
+            });
+
+            rtcEngine.on(VERTC.events.onUserLeave, (event) => {
+                console.log('User left:', event.userId);
+            });
+
+            rtcEngine.on(VERTC.events.onAutoplayFailed, () => {
+                console.warn('Autoplay failed, user interaction needed');
+            });
+
+            await rtcEngine.joinRoom(tokenInfo.token, tokenInfo.room_id, {
+                userId: tokenInfo.user_id,
+            }, {
+                isAutoPublish: true,
+                isAutoSubscribeAudio: true,
+                isAutoSubscribeVideo: false,
+            });
+
+            if (mediaStream) {
+                const audioTrack = mediaStream.getAudioTracks()[0];
+                const videoTrack = mediaStream.getVideoTracks()[0];
+                if (audioTrack) {
+                    await rtcEngine.publishStream(VERTC.MediaType.AUDIO);
                 }
-
-                const base64 = arrayBufferToBase64(int16.buffer);
-                ws.send(JSON.stringify({ type: 'audio', data: base64 }));
-            };
-
-            source.connect(processor);
-            processor.connect(audioContext.destination);
+                if (videoTrack) {
+                    await rtcEngine.publishStream(VERTC.MediaType.VIDEO);
+                }
+            }
         }
 
-        function setupVideoCapture() {
-            const video = document.getElementById('cameraPreview');
-            const canvas = document.createElement('canvas');
-            canvas.width = 640;
-            canvas.height = 480;
-            const ctx = canvas.getContext('2d');
-
-            videoInterval = setInterval(() => {
-                if (!ws || ws.readyState !== WebSocket.OPEN) return;
-                if (video.readyState < 2) return;
-
-                ctx.drawImage(video, 0, 0, 640, 480);
-                canvas.toBlob((blob) => {
-                    if (!blob) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const base64 = reader.result.split(',')[1];
-                        ws.send(JSON.stringify({ type: 'video', data: base64 }));
-                    };
-                    reader.readAsDataURL(blob);
-                }, 'image/jpeg', 0.6);
-            }, 1000);
+        async function startStudySession(tokenInfo) {
+            const resp = await fetch('/api/study/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    room_id: tokenInfo.room_id,
+                    child_user_id: tokenInfo.user_id,
+                }),
+            });
+            const data = await resp.json();
+            if (data.error) throw new Error(data.error);
         }
 
-        function setupWebSocket() {
+        function setupStatusWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${window.location.host}/ws/study/${sessionId}`);
+            statusWs = new WebSocket(
+                `${protocol}//${window.location.host}/ws/status/${sessionId}`
+            );
 
-            ws.onopen = () => {
+            statusWs.onopen = () => {
                 document.getElementById('connStatus').classList.add('connected');
             };
 
-            ws.onclose = () => {
+            statusWs.onclose = () => {
                 document.getElementById('connStatus').classList.remove('connected');
-                setTimeout(setupWebSocket, 3000);
+                setTimeout(setupStatusWebSocket, 3000);
             };
 
-            ws.onmessage = (event) => {
+            statusWs.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
-                handleServerMessage(msg);
+                if (msg.type === 'status') updateUI(msg);
+                if (msg.type === 'error') {
+                    alert(msg.message);
+                    window.location.href = '/';
+                }
             };
-        }
-
-        function handleServerMessage(msg) {
-            if (msg.type === 'status') {
-                updateUI(msg);
-            } else if (msg.type === 'audio') {
-                playAudio(msg.data);
-            } else if (msg.type === 'error') {
-                alert(msg.message);
-                window.location.href = '/';
-            }
         }
 
         function updateUI(status) {
@@ -345,39 +414,6 @@
                     window.location.href = `/report/${sessionId}`;
                 }, 2000);
             }
-        }
-
-        async function playAudio(base64Data) {
-            try {
-                const bytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-                const ctx = new AudioContext({ sampleRate: 24000 });
-                const buffer = ctx.createBuffer(1, bytes.length / 2, 24000);
-                const channel = buffer.getChannelData(0);
-                const view = new DataView(bytes.buffer);
-                for (let i = 0; i < channel.length; i++) {
-                    channel[i] = view.getInt16(i * 2, true) / 32768;
-                }
-                const source = ctx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(ctx.destination);
-                source.start();
-
-                document.getElementById('aiSpeaking').classList.add('show');
-                source.onended = () => {
-                    document.getElementById('aiSpeaking').classList.remove('show');
-                };
-            } catch (e) {
-                console.error('Audio playback error:', e);
-            }
-        }
-
-        function arrayBufferToBase64(buffer) {
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return btoa(binary);
         }
 
         init();

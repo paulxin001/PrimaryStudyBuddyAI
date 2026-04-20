@@ -1,0 +1,14 @@
+{
+  "hooks": [
+    {
+      "event": "before_shell",
+      "script": "python .cursor/hooks/guard_shell.py",
+      "description": "拦截危险 shell 命令（删除数据、force push 等）"
+    },
+    {
+      "event": "before_edit",
+      "script": "python .cursor/hooks/guard_edit.py",
+      "description": "保护核心文件（状态机、AI接口、Prompt、配置）的修改需确认"
+    }
+  ]
+}
